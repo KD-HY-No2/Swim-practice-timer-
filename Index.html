@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swim Controller V8</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap');
+    body { font-family: 'Roboto Mono', monospace; background-color: #000; color: white; margin: 0; overflow: hidden; }
+    .digital-font { font-variant-numeric: tabular-nums; letter-spacing: -5px; }
+    .scroll-container { height: calc(100vh - 420px); overflow-y: auto; padding-bottom: 120px; }
+
+    /* Pulse Animations */
+    @keyframes pulse-red { 0% { background-color: #000; } 30% { background-color: #ef4444; } 100% { background-color: #000; } }
+    @keyframes pulse-orange { 0% { background-color: #000; } 30% { background-color: #f97316; } 100% { background-color: #000; } }
+    @keyframes flash-green { 0% { background-color: #22c55e; } 100% { background-color: #000; } }
+    @keyframes pulse-rest-final { 0% { background-color: #f97316; } 30% { background-color: #9a3412; } 100% { background-color: #f97316; } }
+
+    .do-pulse-red { animation: pulse-red 0.7s ease-out; }
+    .do-pulse-orange { animation: pulse-orange 0.7s ease-out; }
+    .do-flash-green { animation: flash-green 0.8s ease-out; }
+    .do-pulse-rest-final { animation: pulse-rest-final 0.7s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function App() {
+      const [mode, setMode] = useState('SETUP');
+      const [workout, setWorkout] = useState([]);
+      const [editingIndex, setEditingIndex] = useState(null);
+      const [defaultRest, setDefaultRest] = useState(60);
+
+      const [inReps, setInReps] = useState('4');
+      const [inDist, setInDist] = useState('100 Free');
+      const [inMin, setInMin] = useState('1');
+      const [inSec, setInSec] = useState('30');
+
+      const [currentBlockIndex, setCurrentBlockIndex] = useState(0);
+      const [currentRep, setCurrentRep] = useState(1);
+      const [timer, setTimer] = useState(0);
+      const [isActive, setIsActive] = useState(false);
+      const [tickToken, setTickToken] = useState(0); 
+
+      const formatTime = (seconds) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+      };
+
+      const handleAddOrUpdate = () => {
+        const mins = parseInt(inMin) || 0;
+        const secs = parseInt(inSec) || 0;
+        const reps = parseInt(inReps) || 1;
+        const totalSeconds = (mins * 60) + secs;
+        if (totalSeconds <= 0) return;
+
+        const newBlock = { type: 'swim', reps, dist: inDist || "Swim", interval: totalSeconds };
+        let newWorkout = [...workout];
+
+        if (editingIndex !== null) {
+          newWorkout[editingIndex] = newBlock;
+          setEditingIndex(null);
+        } else {
+          if (newWorkout.length > 0 && newWorkout[newWorkout.length - 1].type !== 'rest') {
+            newWorkout.push({ type: 'rest', duration: parseInt(defaultRest) || 60 });
+          }
+          newWorkout.push(newBlock);
+        }
+        setWorkout(newWorkout);
+        setInDist('');
+      };
+
+      useEffect(() => {
+        let interval = null;
+        if (isActive && mode === 'RUN') {
+          interval = setInterval(() => {
+            setTimer(t => {
+              const nextTime = t + 1;
+              setTickToken(Date.now()); 
+              return nextTime;
+            });
+          }, 1000);
+        }
+        return () => clearInterval(interval);
+      }, [isActive, mode]);
+
+      useEffect(() => {
+        if (!isActive || mode !== 'RUN') return;
+        const block = workout[currentBlockIndex];
+        if (!block) return;
+        const limit = isRest ? block.duration : block.interval;
+        
+        if (timer >= limit) {
+          setTimer(0);
+          if (isRest || currentRep >= block.reps) {
+            setCurrentBlockIndex(prev => prev + 1);
+            setCurrentRep(1);
+          } else {
+            setCurrentRep(prev => prev + 1);
+          }
+        }
+      }, [timer, isActive]);
+
+      const block = workout[currentBlockIndex];
+      const isRest = block?.type === 'rest';
+
+      if (mode === 'SETUP') {
+        return (
+          <div className="h-screen flex flex-col bg-slate-950 p-4">
+            <h1 className="text-xl font-bold text-blue-400 mb-4 flex justify-between">Practice Setup <span>{workout.length} items</span></h1>
+            <div className={`p-4 rounded-xl mb-4 border-2 transition-all ${editingIndex !== null ? 'border-yellow-500 bg-slate-900' : 'border-slate-700 bg-slate-900'}`}>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                <div className="col-span-1">
+                  <label className="text-[10px] text-slate-400">Reps</label>
+                  <input type="number" value={inReps} onChange={e => setInReps(e.target.value)} className="w-full bg-black p-2 rounded text-lg border border-slate-700" />
+                </div>
+                <div className="col-span-3">
+                  <label className="text-[10px] text-slate-400">Description</label>
+                  <input type="text" value={inDist} onChange={e => setInDist(e.target.value)} className="w-full bg-black p-2 rounded text-lg border border-slate-700" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div><label className="text-[10px] text-slate-400">Min</label><input type="number" value={inMin} onChange={e => setInMin(e.target.value)} className="w-full bg-black p-2 rounded border border-slate-700" /></div>
+                <div><label className="text-[10px] text-slate-400">Sec</label><input type="number" value={inSec} onChange={e => setInSec(e.target.value)} className="w-full bg-black p-2 rounded border border-slate-700" /></div>
+              </div>
+              <button onClick={handleAddOrUpdate} className={`w-full py-3 rounded-lg font-bold ${editingIndex !== null ? 'bg-yellow-600 text-black' : 'bg-blue-600'}`}>
+                {editingIndex !== null ? 'SAVE CHANGES' : 'ADD SET'}
+              </button>
+            </div>
+            <div className="scroll-container">
+              {workout.map((b, i) => (
+                <div key={i} onClick={() => { if(b.type!=='rest') { setEditingIndex(i); setInReps(b.reps.toString()); setInDist(b.dist); setInMin(Math.floor(b.interval/60).toString()); setInSec((b.interval%60).toString()); }}} className={`flex justify-between p-3 rounded mb-2 border-l-4 ${editingIndex === i ? 'border-yellow-500 bg-slate-800' : b.type === 'rest' ? 'bg-orange-950/40 border-orange-500' : 'bg-black border-blue-600'}`}>
+                  <span>{b.type === 'rest' ? `REST: ${formatTime(b.duration)}` : `${b.reps}x${b.dist} @ ${formatTime(b.interval)}`}</span>
+                  <button onClick={(e) => { e.stopPropagation(); setWorkout(workout.filter((_, idx) => idx !== i)); }} className="text-red-500 font-bold px-2">✕</button>
+                </div>
+              ))}
+            </div>
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-950 border-t border-slate-800 flex gap-2">
+               <input type="number" value={defaultRest} onChange={e => setDefaultRest(e.target.value)} className="w-20 bg-black p-2 rounded border border-slate-800 text-center" />
+               <button onClick={() => setMode('RUN')} className="bg-green-600 rounded-lg font-bold flex-grow">START PRACTICE ▶</button>
+            </div>
+          </div>
+        );
+      }
+
+      // --- RUN MODE ---
+      if (!block) return <div className="h-screen bg-black flex flex-col items-center justify-center"><h1 className="text-green-500 text-4xl font-bold mb-8">PRACTICE OVER</h1><button onClick={() => setMode('SETUP')} className="bg-blue-600 px-10 py-4 rounded-xl font-bold">RESTART</button></div>;
+
+      const limit = isRest ? block.duration : block.interval;
+      const remaining = limit - timer;
+
+      let pulseClass = "";
+      if (isActive) {
+        if (timer === 0 && !isRest) {
+          pulseClass = "do-flash-green"; 
+        } else if (remaining <= 3 && remaining > 0) {
+          if (isRest) {
+            pulseClass = "do-pulse-rest-final"; // Pulse during last 3s of REST
+          } else {
+            const nextIsRest = (currentRep >= block.reps);
+            pulseClass = nextIsRest ? "do-pulse-orange" : "do-pulse-red";
+          }
+        }
+      }
+
+      return (
+        <div key={tickToken} className={`h-screen flex flex-col transition-colors duration-300 ${isRest ? 'bg-orange-500' : 'bg-black'} ${pulseClass}`} onClick={() => setIsActive(!isActive)}>
+          <div className="p-4 flex justify-between items-start z-10">
+            <button onClick={(e) => { e.stopPropagation(); setMode('SETUP'); setIsActive(false); }} className={`px-4 py-2 rounded font-bold border-2 ${isRest ? 'border-black text-black' : 'border-slate-800 text-slate-500'}`}>EDIT</button>
+            <div className={`text-right ${isRest ? 'text-black' : 'text-white'}`}>
+              <div className="text-xl font-bold uppercase">{isRest ? 'Rest' : block.dist}</div>
+              {!isRest && <div className="text-lg opacity-80">Rep {currentRep} / {block.reps}</div>}
+            </div>
+          </div>
+          <div className="flex-grow flex items-center justify-center z-10">
+            <span className={`digital-font font-bold text-[45vw] leading-none ${isRest ? 'text-black' : 'text-red-600'}`}>{formatTime(timer)}</span>
+          </div>
+          {!isActive && <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-20"><div className="text-yellow-400 text-4xl font-bold border-4 border-yellow-400 p-4">PAUSED</div></div>}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

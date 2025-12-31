@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Swim Controller V11</title>
+  <title>Swim Controller V12</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -37,21 +37,25 @@
       }
     }
 
-    /* Pulse Animations - single flash ~300ms */
-    @keyframes flash-red {
-      0% { opacity: 1; }
+    /* Pulse Animations - soft fade in/out ~400ms */
+    @keyframes pulse-red {
+      0% { opacity: 0; }
+      20% { opacity: 0.5; }
       100% { opacity: 0; }
     }
-    @keyframes flash-orange {
-      0% { opacity: 1; }
+    @keyframes pulse-orange {
+      0% { opacity: 0; }
+      20% { opacity: 0.5; }
       100% { opacity: 0; }
     }
-    @keyframes flash-green {
-      0% { opacity: 1; }
+    @keyframes pulse-green {
+      0% { opacity: 0; }
+      20% { opacity: 0.6; }
       100% { opacity: 0; }
     }
-    @keyframes flash-rest-warning {
-      0% { opacity: 1; }
+    @keyframes pulse-rest-warning {
+      0% { opacity: 0; }
+      20% { opacity: 0.4; }
       100% { opacity: 0; }
     }
 
@@ -61,10 +65,10 @@
       pointer-events: none;
       z-index: 5;
     }
-    .flash-red { background-color: #ef4444; animation: flash-red 0.3s ease-out forwards; }
-    .flash-orange { background-color: #f97316; animation: flash-orange 0.3s ease-out forwards; }
-    .flash-green { background-color: #22c55e; animation: flash-green 0.3s ease-out forwards; }
-    .flash-rest-warning { background-color: #9a3412; animation: flash-rest-warning 0.3s ease-out forwards; }
+    .flash-red { background-color: #ef4444; animation: pulse-red 0.4s ease-in-out forwards; }
+    .flash-orange { background-color: #f97316; animation: pulse-orange 0.4s ease-in-out forwards; }
+    .flash-green { background-color: #22c55e; animation: pulse-green 0.4s ease-in-out forwards; }
+    .flash-rest-warning { background-color: #7c2d12; animation: pulse-rest-warning 0.4s ease-in-out forwards; }
 
     /* Touch lock overlay */
     .touch-locked::after {
@@ -254,33 +258,39 @@
         setInDist('');
       };
 
-      // Robust timer that survives background/visibility changes
-      useEffect(() => {
-        let interval = null;
-        let lastTick = Date.now();
+      // High-precision timer using requestAnimationFrame and performance.now()
+      // This ensures second changes happen within ~16ms of the actual boundary
+      const lastDisplayedSecondRef = useRef(-1);
 
-        if (isActive && mode === 'RUN') {
-          // Store start time when timer begins
-          if (startTimeRef.current === null) {
-            startTimeRef.current = Date.now();
-            accumulatedTimeRef.current = timer;
+      useEffect(() => {
+        let animationId = null;
+
+        const tick = () => {
+          if (!isActive || mode !== 'RUN') return;
+
+          const now = performance.now();
+          const elapsedMs = now - startTimeRef.current;
+          const elapsedSeconds = Math.floor(elapsedMs / 1000);
+          const newTimer = accumulatedTimeRef.current + elapsedSeconds;
+
+          // Only update state when the second actually changes
+          // This reduces unnecessary renders and ensures precise visual updates
+          if (newTimer !== lastDisplayedSecondRef.current) {
+            lastDisplayedSecondRef.current = newTimer;
+            setTimer(newTimer);
           }
 
-          interval = setInterval(() => {
-            const now = Date.now();
-            // Calculate elapsed time from start, handling background pauses
-            const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
-            const newTimer = accumulatedTimeRef.current + elapsedSinceStart;
+          animationId = requestAnimationFrame(tick);
+        };
 
-            // Check if significant time passed (app was in background)
-            const tickDelta = now - lastTick;
-            if (tickDelta > 1500) {
-              console.log('Timer recovered from background, delta:', tickDelta);
-            }
-            lastTick = now;
-
-            setTimer(newTimer);
-          }, 250); // Check more frequently for responsiveness
+        if (isActive && mode === 'RUN') {
+          // Store start time when timer begins using high-precision timer
+          if (startTimeRef.current === null) {
+            startTimeRef.current = performance.now();
+            accumulatedTimeRef.current = timer;
+            lastDisplayedSecondRef.current = timer;
+          }
+          animationId = requestAnimationFrame(tick);
         } else {
           // Timer paused - save accumulated time
           if (startTimeRef.current !== null) {
@@ -288,7 +298,29 @@
             startTimeRef.current = null;
           }
         }
-        return () => clearInterval(interval);
+
+        return () => {
+          if (animationId) cancelAnimationFrame(animationId);
+        };
+      }, [isActive, mode]);
+
+      // Handle visibility changes - recalculate time when returning from background
+      useEffect(() => {
+        const handleVisibility = () => {
+          if (document.visibilityState === 'visible' && isActive && mode === 'RUN' && startTimeRef.current !== null) {
+            // Recalculate based on elapsed time since start
+            const now = performance.now();
+            const elapsedMs = now - startTimeRef.current;
+            const elapsedSeconds = Math.floor(elapsedMs / 1000);
+            const newTimer = accumulatedTimeRef.current + elapsedSeconds;
+            if (newTimer !== lastDisplayedSecondRef.current) {
+              lastDisplayedSecondRef.current = newTimer;
+              setTimer(newTimer);
+            }
+          }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => document.removeEventListener('visibilitychange', handleVisibility);
       }, [isActive, mode]);
 
       useEffect(() => {
@@ -298,9 +330,10 @@
         const limit = isRest ? block.duration : block.interval;
 
         if (timer >= limit) {
-          // Reset timer refs for new interval
-          startTimeRef.current = Date.now();
+          // Reset timer refs for new interval using high-precision timer
+          startTimeRef.current = performance.now();
           accumulatedTimeRef.current = 0;
+          lastDisplayedSecondRef.current = 0;
           setTimer(0);
           if (isRest || currentRep >= block.reps) {
             setCurrentBlockIndex(prev => prev + 1);
@@ -596,9 +629,10 @@
         if (touchLocked) return; // Ignore touch when locked
         setIsActive(!isActive);
         if (!isActive) {
-          // Resuming - reset start time
-          startTimeRef.current = Date.now();
+          // Resuming - reset start time with high-precision timer
+          startTimeRef.current = performance.now();
           accumulatedTimeRef.current = timer;
+          lastDisplayedSecondRef.current = timer;
         }
       };
 

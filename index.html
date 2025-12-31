@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Swim Controller V9</title>
+  <title>Swim Controller V10</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -37,16 +37,34 @@
       }
     }
 
-    /* Pulse Animations */
-    @keyframes pulse-red { 0% { background-color: #000; } 30% { background-color: #ef4444; } 100% { background-color: #000; } }
-    @keyframes pulse-orange { 0% { background-color: #000; } 30% { background-color: #f97316; } 100% { background-color: #000; } }
-    @keyframes flash-green { 0% { background-color: #22c55e; } 100% { background-color: #000; } }
-    @keyframes pulse-rest-final { 0% { background-color: #f97316; } 30% { background-color: #9a3412; } 100% { background-color: #f97316; } }
+    /* Pulse Animations - single flash ~300ms */
+    @keyframes flash-red {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes flash-orange {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes flash-green {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes flash-rest-warning {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
+    }
 
-    .do-pulse-red { animation: pulse-red 0.7s ease-out; }
-    .do-pulse-orange { animation: pulse-orange 0.7s ease-out; }
-    .do-flash-green { animation: flash-green 0.8s ease-out; }
-    .do-pulse-rest-final { animation: pulse-rest-final 0.7s ease-out; }
+    .flash-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .flash-red { background-color: #ef4444; animation: flash-red 0.3s ease-out forwards; }
+    .flash-orange { background-color: #f97316; animation: flash-orange 0.3s ease-out forwards; }
+    .flash-green { background-color: #22c55e; animation: flash-green 0.3s ease-out forwards; }
+    .flash-rest-warning { background-color: #9a3412; animation: flash-rest-warning 0.3s ease-out forwards; }
 
     /* Touch lock overlay */
     .touch-locked::after {
@@ -78,7 +96,6 @@
       const [currentRep, setCurrentRep] = useState(1);
       const [timer, setTimer] = useState(0);
       const [isActive, setIsActive] = useState(false);
-      const [tickToken, setTickToken] = useState(0);
 
       // New state for settings and features
       const [showSettings, setShowSettings] = useState(false);
@@ -211,7 +228,6 @@
             lastTick = now;
 
             setTimer(newTimer);
-            setTickToken(Date.now());
           }, 250); // Check more frequently for responsiveness
         } else {
           // Timer paused - save accumulated time
@@ -376,20 +392,34 @@
 
       const limit = isRest ? block.duration : block.interval;
       const remaining = limit - timer;
+      const timerSecond = Math.floor(timer);
 
-      let pulseClass = "";
+      // Calculate display time: count UP for swim, count DOWN for rest
+      // For rest: start at (duration - 1) and count down to 0
+      // This means a 60-second rest shows 59, 58, 57... 2, 1, 0
+      const displayTime = isRest ? Math.max(0, block.duration - 1 - timerSecond) : timerSecond;
+
+      // Determine flash class - only triggers once per second via key change
+      let flashClass = "";
       if (isActive) {
-        if (timer === 0 && !isRest) {
-          pulseClass = "do-flash-green";
+        if (timerSecond === 0 && !isRest) {
+          // Flash green at start of new swim rep
+          flashClass = "flash-green";
         } else if (remaining <= 3 && remaining > 0) {
           if (isRest) {
-            pulseClass = "do-pulse-rest-final";
+            // Flash during final 3 seconds of rest
+            flashClass = "flash-rest-warning";
           } else {
+            // Flash during final 3 seconds of swim
             const nextIsRest = (currentRep >= block.reps);
-            pulseClass = nextIsRest ? "do-pulse-orange" : "do-pulse-red";
+            flashClass = nextIsRest ? "flash-orange" : "flash-red";
           }
         }
       }
+
+      // Key for flash overlay - only changes when timer second changes
+      // This ensures the flash animation triggers exactly once per second
+      const flashKey = `${currentBlockIndex}-${currentRep}-${timerSecond}`;
 
       const handleTimerClick = () => {
         if (touchLocked) return; // Ignore touch when locked
@@ -403,10 +433,14 @@
 
       return (
         <div
-          key={tickToken}
-          className={`h-screen flex flex-col transition-colors duration-300 relative ${isRest ? 'bg-orange-500' : 'bg-black'} ${pulseClass} ${touchLocked ? 'touch-locked' : ''}`}
+          className={`h-screen flex flex-col relative ${isRest ? 'bg-orange-500' : 'bg-black'} ${touchLocked ? 'touch-locked' : ''}`}
           onClick={handleTimerClick}
         >
+          {/* Flash overlay - key changes once per second to trigger animation */}
+          {flashClass && (
+            <div key={flashKey} className={`flash-overlay ${flashClass}`} />
+          )}
+
           {/* Touch Lock Indicator */}
           {touchLocked && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-red-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
@@ -437,7 +471,7 @@
           </div>
           <div className="flex-grow flex items-center justify-center z-10 overflow-hidden">
             <span className={`digital-font font-bold timer-display ${isRest ? 'text-black' : 'text-red-600'}`}>
-              {formatTime(timer)}
+              {formatTime(displayTime)}
             </span>
           </div>
           {!isActive && !touchLocked && (

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Swim Controller V12</title>
+  <title>Swim Controller V13</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,7 +12,7 @@
     @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap');
     body { font-family: 'Roboto Mono', monospace; background-color: #000; color: white; margin: 0; overflow: hidden; }
     .digital-font { font-variant-numeric: tabular-nums; letter-spacing: -5px; }
-    .scroll-container { height: calc(100vh - 420px); overflow-y: auto; padding-bottom: 120px; }
+    .scroll-container { height: calc(100vh - 340px); overflow-y: auto; padding-bottom: 80px; }
 
     /* Responsive timer sizing - uses smaller of width or height */
     .timer-display {
@@ -101,6 +101,10 @@
       const [timer, setTimer] = useState(0);
       const [isActive, setIsActive] = useState(false);
 
+      // State for rest interval input
+      const [restMin, setRestMin] = useState('1');
+      const [restSec, setRestSec] = useState('0');
+
       // New state for settings and features
       const [showSettings, setShowSettings] = useState(false);
       const [showLibrary, setShowLibrary] = useState(false);
@@ -109,7 +113,11 @@
       const [workoutName, setWorkoutName] = useState('');
       const [touchLockEnabled, setTouchLockEnabled] = useState(false);
       const [touchLocked, setTouchLocked] = useState(false);
-      const [unlockKey, setUnlockKey] = useState('VolumeUp'); // Default unlock key
+      const [isFullscreen, setIsFullscreen] = useState(false);
+
+      // Triple-tap unlock tracking
+      const tapTimesRef = useRef([]);
+      const TRIPLE_TAP_TIMEOUT = 500; // ms between taps
 
       // Load saved workouts from localStorage on mount
       useEffect(() => {
@@ -211,29 +219,78 @@
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
       }, [isActive, mode, requestWakeLock]);
 
-      // Touch lock - listen for physical button to unlock
+      // Fullscreen API helpers
+      const enterFullscreen = useCallback(async () => {
+        try {
+          const elem = document.documentElement;
+          if (elem.requestFullscreen) {
+            await elem.requestFullscreen();
+          } else if (elem.webkitRequestFullscreen) {
+            await elem.webkitRequestFullscreen();
+          } else if (elem.msRequestFullscreen) {
+            await elem.msRequestFullscreen();
+          }
+          setIsFullscreen(true);
+        } catch (err) {
+          console.log('Fullscreen failed:', err);
+        }
+      }, []);
+
+      const exitFullscreen = useCallback(() => {
+        try {
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+          }
+          setIsFullscreen(false);
+        } catch (err) {
+          console.log('Exit fullscreen failed:', err);
+        }
+      }, []);
+
+      // Track fullscreen changes (user may exit via Escape key)
       useEffect(() => {
-        const handleKeyDown = (e) => {
-          if (touchLocked && (e.key === unlockKey || e.code === unlockKey ||
-              e.key === 'VolumeUp' || e.key === 'VolumeDown' ||
-              e.code === 'VolumeUp' || e.code === 'VolumeDown')) {
-            e.preventDefault();
+        const handleFullscreenChange = () => {
+          const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+          setIsFullscreen(isFs);
+          // If user exits fullscreen, also disable touch lock
+          if (!isFs && touchLocked) {
             setTouchLocked(false);
           }
         };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        return () => {
+          document.removeEventListener('fullscreenchange', handleFullscreenChange);
+          document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+        };
+      }, [touchLocked]);
 
-        if (touchLocked) {
-          window.addEventListener('keydown', handleKeyDown);
-          return () => window.removeEventListener('keydown', handleKeyDown);
-        }
-      }, [touchLocked, unlockKey]);
-
-      // Auto-enable touch lock when timer starts (if feature is enabled)
+      // Auto-enable touch lock and fullscreen when timer starts (if feature is enabled)
       useEffect(() => {
         if (touchLockEnabled && isActive && mode === 'RUN') {
+          enterFullscreen();
           setTouchLocked(true);
         }
-      }, [isActive, touchLockEnabled, mode]);
+      }, [isActive, touchLockEnabled, mode, enterFullscreen]);
+
+      // Handle triple-tap to unlock
+      const handleTripleTap = useCallback(() => {
+        const now = Date.now();
+        const recentTaps = tapTimesRef.current.filter(t => now - t < TRIPLE_TAP_TIMEOUT);
+        recentTaps.push(now);
+        tapTimesRef.current = recentTaps;
+
+        if (recentTaps.length >= 3) {
+          // Triple tap detected - unlock
+          setTouchLocked(false);
+          exitFullscreen();
+          tapTimesRef.current = [];
+        }
+      }, [exitFullscreen]);
 
       const handleAddOrUpdate = () => {
         const mins = parseInt(inMin) || 0;
@@ -249,14 +306,22 @@
           newWorkout[editingIndex] = newBlock;
           setEditingIndex(null);
         } else {
-          if (newWorkout.length > 0 && newWorkout[newWorkout.length - 1].type !== 'rest') {
-            newWorkout.push({ type: 'rest', duration: parseInt(defaultRest) || 60 });
-          }
           newWorkout.push(newBlock);
         }
         setWorkout(newWorkout);
         setInDist('');
       };
+
+      const handleAddRest = () => {
+        const mins = parseInt(restMin) || 0;
+        const secs = parseInt(restSec) || 0;
+        const totalSeconds = (mins * 60) + secs;
+        if (totalSeconds <= 0) return;
+        setWorkout([...workout, { type: 'rest', duration: totalSeconds }]);
+      };
+
+      // Auto-select text on focus for easier input
+      const handleInputFocus = (e) => e.target.select();
 
       // High-precision timer using requestAnimationFrame and performance.now()
       // This ensures second changes happen within ~16ms of the actual boundary
@@ -356,7 +421,7 @@
             {/* Touch Lock Toggle */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-white font-medium">Touch Lock</label>
+                <label className="text-white font-medium">Water-Resistant Mode</label>
                 <button
                   onClick={() => setTouchLockEnabled(!touchLockEnabled)}
                   className={`w-14 h-8 rounded-full transition-colors ${touchLockEnabled ? 'bg-green-600' : 'bg-slate-600'}`}
@@ -365,25 +430,7 @@
                 </button>
               </div>
               <p className="text-slate-400 text-sm">
-                When enabled, touch input is disabled during timer. Press volume button to unlock.
-              </p>
-            </div>
-
-            {/* Unlock Key Selection */}
-            <div className="mb-6">
-              <label className="text-white font-medium block mb-2">Unlock Button</label>
-              <select
-                value={unlockKey}
-                onChange={e => setUnlockKey(e.target.value)}
-                className="w-full bg-black p-3 rounded border border-slate-700 text-white"
-              >
-                <option value="VolumeUp">Volume Up</option>
-                <option value="VolumeDown">Volume Down</option>
-                <option value="Space">Spacebar</option>
-                <option value="Escape">Escape Key</option>
-              </select>
-              <p className="text-slate-400 text-sm mt-1">
-                Physical button to re-enable touch input.
+                Enables fullscreen and blocks accidental touches from water splashes. Triple-tap the lock icon to unlock.
               </p>
             </div>
 
@@ -546,23 +593,41 @@
                 </button>
               </div>
             </div>
-            <div className={`p-4 rounded-xl mb-4 border-2 transition-all ${editingIndex !== null ? 'border-yellow-500 bg-slate-900' : 'border-slate-700 bg-slate-900'}`}>
-              <div className="grid grid-cols-4 gap-2 mb-2">
+            {/* Swim Set Input */}
+            <div className={`p-3 rounded-xl mb-3 border-2 transition-all ${editingIndex !== null ? 'border-yellow-500 bg-slate-900' : 'border-blue-600 bg-slate-900'}`}>
+              <div className="grid grid-cols-5 gap-2 mb-2">
                 <div className="col-span-1">
                   <label className="text-[10px] text-slate-400">Reps</label>
-                  <input type="number" value={inReps} onChange={e => setInReps(e.target.value)} className="w-full bg-black p-2 rounded text-lg border border-slate-700" />
+                  <input type="number" value={inReps} onChange={e => setInReps(e.target.value)} onFocus={handleInputFocus} className="w-full bg-black p-2 rounded text-lg border border-slate-700 text-center" />
                 </div>
-                <div className="col-span-3">
+                <div className="col-span-2">
                   <label className="text-[10px] text-slate-400">Description</label>
-                  <input type="text" value={inDist} onChange={e => setInDist(e.target.value)} className="w-full bg-black p-2 rounded text-lg border border-slate-700" />
+                  <input type="text" value={inDist} onChange={e => setInDist(e.target.value)} onFocus={handleInputFocus} className="w-full bg-black p-2 rounded text-lg border border-slate-700" />
+                </div>
+                <div className="col-span-1">
+                  <label className="text-[10px] text-slate-400">Min</label>
+                  <input type="number" value={inMin} onChange={e => setInMin(e.target.value)} onFocus={handleInputFocus} className="w-full bg-black p-2 rounded border border-slate-700 text-center" />
+                </div>
+                <div className="col-span-1">
+                  <label className="text-[10px] text-slate-400">Sec</label>
+                  <input type="number" value={inSec} onChange={e => setInSec(e.target.value)} onFocus={handleInputFocus} className="w-full bg-black p-2 rounded border border-slate-700 text-center" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div><label className="text-[10px] text-slate-400">Min</label><input type="number" value={inMin} onChange={e => setInMin(e.target.value)} className="w-full bg-black p-2 rounded border border-slate-700" /></div>
-                <div><label className="text-[10px] text-slate-400">Sec</label><input type="number" value={inSec} onChange={e => setInSec(e.target.value)} className="w-full bg-black p-2 rounded border border-slate-700" /></div>
-              </div>
-              <button onClick={handleAddOrUpdate} className={`w-full py-3 rounded-lg font-bold ${editingIndex !== null ? 'bg-yellow-600 text-black' : 'bg-blue-600'}`}>
+              <button onClick={handleAddOrUpdate} className={`w-full py-2 rounded-lg font-bold ${editingIndex !== null ? 'bg-yellow-600 text-black' : 'bg-blue-600'}`}>
                 {editingIndex !== null ? 'SAVE CHANGES' : 'ADD SET'}
+              </button>
+            </div>
+
+            {/* Rest Interval Input */}
+            <div className="flex gap-2 mb-3">
+              <div className="flex items-center gap-1 bg-orange-950/60 border border-orange-600 rounded-lg px-3 py-2">
+                <span className="text-orange-400 text-sm font-medium">REST</span>
+                <input type="number" value={restMin} onChange={e => setRestMin(e.target.value)} onFocus={handleInputFocus} className="w-10 bg-black p-1 rounded border border-orange-700 text-center text-sm" placeholder="M" />
+                <span className="text-orange-400">:</span>
+                <input type="number" value={restSec} onChange={e => setRestSec(e.target.value)} onFocus={handleInputFocus} className="w-10 bg-black p-1 rounded border border-orange-700 text-center text-sm" placeholder="S" />
+              </div>
+              <button onClick={handleAddRest} className="flex-grow py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-bold text-sm">
+                ADD REST
               </button>
             </div>
             <div className="scroll-container">
@@ -573,9 +638,8 @@
                 </div>
               ))}
             </div>
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-950 border-t border-slate-800 flex gap-2">
-               <input type="number" value={defaultRest} onChange={e => setDefaultRest(e.target.value)} className="w-20 bg-black p-2 rounded border border-slate-800 text-center" />
-               <button onClick={() => { setMode('RUN'); setCurrentBlockIndex(0); setCurrentRep(1); setTimer(0); startTimeRef.current = null; accumulatedTimeRef.current = 0; }} className="bg-green-600 rounded-lg font-bold flex-grow">START PRACTICE</button>
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-950 border-t border-slate-800">
+               <button onClick={() => { setMode('RUN'); setCurrentBlockIndex(0); setCurrentRep(1); setTimer(0); startTimeRef.current = null; accumulatedTimeRef.current = 0; }} disabled={workout.length === 0} className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-lg">START PRACTICE</button>
             </div>
           </div>
         );
@@ -625,7 +689,25 @@
       // This ensures the flash animation triggers exactly once per second
       const flashKey = `${currentBlockIndex}-${currentRep}-${timerSecond}`;
 
-      const handleTimerClick = () => {
+      // Track if touch should be ignored (multi-touch protection)
+      const ignoreTouchRef = useRef(false);
+
+      const handleTouchStart = (e) => {
+        // Ignore multi-touch (water splashes often register multiple touches)
+        if (e.touches && e.touches.length > 1) {
+          ignoreTouchRef.current = true;
+          e.preventDefault();
+          return;
+        }
+        ignoreTouchRef.current = false;
+      };
+
+      const handleTimerClick = (e) => {
+        // Ignore if this was a multi-touch event
+        if (ignoreTouchRef.current) {
+          ignoreTouchRef.current = false;
+          return;
+        }
         if (touchLocked) return; // Ignore touch when locked
         setIsActive(!isActive);
         if (!isActive) {
@@ -639,6 +721,7 @@
       return (
         <div
           className={`h-screen flex flex-col relative ${isRest ? 'bg-orange-500' : 'bg-black'} ${touchLocked ? 'touch-locked' : ''}`}
+          onTouchStart={handleTouchStart}
           onClick={handleTimerClick}
         >
           {/* Flash overlay - key changes once per second to trigger animation */}
@@ -646,13 +729,16 @@
             <div key={flashKey} className={`flash-overlay ${flashClass}`} />
           )}
 
-          {/* Touch Lock Indicator */}
+          {/* Touch Lock Indicator - tap this 3x to unlock */}
           {touchLocked && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-red-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <div
+              onClick={(e) => { e.stopPropagation(); handleTripleTap(); }}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-red-600 text-white px-4 py-3 rounded-full text-sm font-bold flex items-center gap-2 cursor-pointer active:bg-red-700 select-none"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
               </svg>
-              TOUCH LOCKED - Press {unlockKey === 'VolumeUp' ? 'Vol+' : unlockKey === 'VolumeDown' ? 'Vol-' : unlockKey}
+              TAP 3X TO UNLOCK
             </div>
           )}
 

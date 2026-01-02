@@ -37,30 +37,30 @@
       }
     }
 
-    /* Rep counter - 75% of timer size */
+    /* Rep counter - 60% of timer size */
     .rep-display {
-      font-size: min(22vw, 35vh);
+      font-size: min(27vw, 42vh);
       line-height: 1;
     }
     @media (orientation: landscape) {
       .rep-display {
-        font-size: min(17vw, 32vh);
+        font-size: min(21vw, 39vh);
       }
     }
     @media (max-height: 500px) {
       .rep-display {
-        font-size: min(15vw, 30vh);
+        font-size: min(18vw, 36vh);
       }
     }
 
     /* Description - smaller than rep counter */
     .desc-display {
-      font-size: min(8vw, 12vh);
+      font-size: min(6vw, 10vh);
       line-height: 1.1;
     }
     @media (orientation: landscape) {
       .desc-display {
-        font-size: min(6vw, 10vh);
+        font-size: min(5vw, 8vh);
       }
     }
 
@@ -821,8 +821,14 @@
           )}
 
           {/* Menu button - top left */}
-          <div className="absolute top-2 left-2 z-10">
+          <div className="absolute top-2 left-2 z-[102]">
             <button
+              onTouchEnd={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (touchLocked) return;
+                setShowDrawer(!showDrawer);
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 if (touchLocked) return;

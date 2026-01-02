@@ -171,6 +171,7 @@
       const startTimeRef = useRef(null);
       const accumulatedTimeRef = useRef(0);
       const wakeLockRef = useRef(null);
+      const ignoreTouchRef = useRef(false); // Multi-touch protection for water splashes
 
       const formatTime = (seconds) => {
         const m = Math.floor(seconds / 60);
@@ -690,9 +691,6 @@
       // Key for flash overlay - only changes when timer second changes
       // This ensures the flash animation triggers exactly once per second
       const flashKey = `${currentBlockIndex}-${currentRep}-${timerSecond}`;
-
-      // Track if touch should be ignored (multi-touch protection)
-      const ignoreTouchRef = useRef(false);
 
       const handleTouchStart = (e) => {
         // Ignore multi-touch (water splashes often register multiple touches)

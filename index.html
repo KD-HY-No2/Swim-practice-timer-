@@ -14,53 +14,76 @@
     .digital-font { font-variant-numeric: tabular-nums; letter-spacing: -5px; }
     .scroll-container { height: calc(100vh - 340px); overflow-y: auto; padding-bottom: 80px; }
 
+    /* Use dvh (dynamic viewport height) for mobile browser chrome compatibility */
+    .run-container {
+      height: 100vh;
+      height: 100dvh; /* Modern browsers - accounts for browser chrome */
+    }
+
     /* Responsive timer sizing - uses smaller of width or height */
     .timer-display {
-      font-size: min(45vw, 70vh);
+      font-size: min(45vw, 60dvh, 60vh);
       line-height: 1;
     }
 
     /* Landscape-specific adjustments */
     @media (orientation: landscape) {
       .timer-display {
-        font-size: min(35vw, 65vh);
+        font-size: min(32vw, 50dvh, 50vh);
       }
       .scroll-container {
         height: calc(100vh - 300px);
       }
     }
 
-    /* Small height screens (landscape mobile) */
+    /* Small height screens (landscape mobile with browser chrome) */
     @media (max-height: 500px) {
       .timer-display {
-        font-size: min(30vw, 60vh);
+        font-size: min(28vw, 45dvh, 45vh);
+      }
+    }
+
+    /* Very small height (landscape mobile with browser chrome) */
+    @media (max-height: 400px) {
+      .timer-display {
+        font-size: min(25vw, 38dvh, 38vh);
       }
     }
 
     /* Rep counter - 60% of timer size */
     .rep-display {
-      font-size: min(27vw, 42vh);
+      font-size: min(27vw, 36dvh, 36vh);
       line-height: 1;
     }
     @media (orientation: landscape) {
       .rep-display {
-        font-size: min(21vw, 39vh);
+        font-size: min(19vw, 30dvh, 30vh);
       }
     }
     @media (max-height: 500px) {
       .rep-display {
-        font-size: min(18vw, 36vh);
+        font-size: min(17vw, 27dvh, 27vh);
+      }
+    }
+    @media (max-height: 400px) {
+      .rep-display {
+        font-size: min(15vw, 23dvh, 23vh);
       }
     }
 
     /* Description - smaller than rep counter */
     .desc-display {
-      font-size: min(6vw, 10vh);
+      font-size: min(6vw, 9dvh, 9vh);
       line-height: 1.1;
     }
     @media (orientation: landscape) {
       .desc-display {
-        font-size: min(5vw, 8vh);
+        font-size: min(5vw, 7dvh, 7vh);
+      }
+    }
+    @media (max-height: 500px) {
+      .desc-display {
+        font-size: min(4vw, 6dvh, 6vh);
       }
     }
 
@@ -353,6 +376,11 @@
           }
           setSkipCountdown(null);
           setShowDrawer(false);
+          // Re-enable water-resistant mode if setting is on
+          if (touchLockEnabled) {
+            enterFullscreen();
+            setTouchLocked(true);
+          }
           return;
         }
 
@@ -361,7 +389,7 @@
         }, 1000);
 
         return () => clearTimeout(timeout);
-      }, [skipCountdown, workout, currentBlockIndex, currentRep]);
+      }, [skipCountdown, workout, currentBlockIndex, currentRep, touchLockEnabled, enterFullscreen]);
 
       const handleSkipStart = () => {
         setSkipCountdown(5);
@@ -798,7 +826,7 @@
 
       return (
         <div
-          className={`h-screen flex flex-col relative ${isRest ? 'bg-orange-500' : 'bg-black'} ${touchLocked ? 'touch-locked' : ''}`}
+          className={`run-container flex flex-col relative ${isRest ? 'bg-orange-500' : 'bg-black'} ${touchLocked ? 'touch-locked' : ''}`}
           onTouchStart={handleTouchStart}
           onClick={handleTimerClick}
         >
@@ -817,6 +845,29 @@
                 <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
               </svg>
               TAP 3X TO UNLOCK
+            </div>
+          )}
+
+          {/* Re-lock button - shows when water-resistant mode is enabled but screen is unlocked */}
+          {touchLockEnabled && !touchLocked && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                enterFullscreen();
+                setTouchLocked(true);
+              }}
+              onTouchEnd={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                enterFullscreen();
+                setTouchLocked(true);
+              }}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-[110] bg-green-600 text-white px-4 py-3 rounded-full text-sm font-bold flex items-center gap-2 cursor-pointer active:bg-green-700 select-none"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+              </svg>
+              TAP TO LOCK
             </div>
           )}
 

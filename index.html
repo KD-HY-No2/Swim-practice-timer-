@@ -898,6 +898,11 @@
             </button>
           </div>
 
+          {/* Interval display - top right */}
+          <div className={`absolute top-3 right-3 z-10 text-sm md:text-base font-medium ${isRest ? 'text-black/60' : 'text-slate-500'}`}>
+            @{formatTime(isRest ? block.duration : block.interval)}
+          </div>
+
           {/* Control Drawer */}
           <div
             className={`control-drawer ${showDrawer ? 'open' : ''} absolute top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-700 z-[105] flex flex-col p-4 overflow-y-auto`}
